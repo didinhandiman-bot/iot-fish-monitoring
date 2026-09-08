@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
@@ -37,7 +39,7 @@ io.on('connection', (socket) => {
 // Sinkronisasi in-memory dengan service (untuk broadcast via Socket.IO)
 const originalHandleSensorData = sensorService.handleSensorData;
 sensorService.handleSensorData = async function(payload) {
-  const result = await originalHandleSensorData(payload);
+  const result = await originalHandleSensorData.call(this, payload);
   
   // Cache di memory untuk Socket.IO push
   latestData[payload.deviceId] = result;

@@ -14,8 +14,8 @@ class SensorLogRepository {
     );
 
     const [result] = await this.pool.execute(
-      'INSERT INTO sensor_logs (device_id, temperature, ph, created_at) VALUES (?, ?, ?, ?)',
-      [log.deviceId, log.temperature, log.ph, log.createdAt]
+      'INSERT INTO sensor_logs (device_id, temperature, ph, created_at) VALUES (?, ?, ?, NOW())',
+      [log.deviceId, log.temperature, log.ph]
     );
 
     return { ...log.toJSON(), id: result.insertId };

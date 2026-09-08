@@ -6,12 +6,11 @@ class DeviceRepository {
   }
 
   async upsert(deviceId, name) {
-    const now = new Date();
     await this.pool.execute(
       `INSERT INTO devices (device_id, name, status, last_seen) 
-       VALUES (?, ?, 'online', ?)
-       ON DUPLICATE KEY UPDATE status='online', last_seen=?`,
-      [deviceId, name, now, now]
+       VALUES (?, ?, 'online', NOW())
+       ON DUPLICATE KEY UPDATE status='online', last_seen=NOW()`,
+      [deviceId, name]
     );
     return this.findByDeviceId(deviceId);
   }
