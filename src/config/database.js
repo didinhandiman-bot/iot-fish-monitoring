@@ -7,7 +7,7 @@ function getPool() {
     pool = mysql.createPool({
       host: process.env.DB_HOST || '192.168.9.151',
       user: process.env.DB_USER || 'root',
-      password: process.env.DB_PASS || 'Pwd$4rfv%5tgb',
+      password: process.env.DB_PASS || '',
       database: process.env.DB_NAME || 'fish_monitoring',
       waitForConnections: true,
       connectionLimit: 10,
