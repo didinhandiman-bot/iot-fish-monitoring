@@ -1,21 +1,14 @@
 require('dotenv').config();
 
-const https = require('https');
-const fs = require('fs');
+const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const app = require('./app');
 const env = require('./config/env');
 const sensorService = require('./services/sensorService');
 
-// Load self-signed SSL certificate (for development only)
-const sslOptions = {
-  key: fs.readFileSync('/tmp/iot-fish-ssl/key.pem'),
-  cert: fs.readFileSync('/tmp/iot-fish-ssl/cert.pem')
-};
-
-// HTTPS Server
-const httpServer = https.createServer(sslOptions, app);
+// HTTP Server (Nginx handling SSL)
+const httpServer = http.createServer(app);
 
 // Socket.IO setup - fix CORS untuk localhost
 const io = new Server(httpServer, {
