@@ -1,21 +1,30 @@
 require('dotenv').config();
 
-const { createServer } = require('http');
+const https = require('https');
+const fs = require('fs');
 const { Server } = require('socket.io');
 const path = require('path');
 const app = require('./app');
 const env = require('./config/env');
 const sensorService = require('./services/sensorService');
 
-// HTTP Server
-const httpServer = createServer(app);
+// Load self-signed SSL certificate (for development only)
+const sslOptions = {
+  key: fs.readFileSync('/tmp/iot-fish-ssl/key.pem'),
+  cert: fs.readFileSync('/tmp/iot-fish-ssl/cert.pem')
+};
 
-// Socket.IO setup
+// HTTPS Server
+const httpServer = https.createServer(sslOptions, app);
+
+// Socket.IO setup - fix CORS untuk localhost
 const io = new Server(httpServer, {
   cors: {
-    origin: env.allowedOrigins,
-    methods: ['GET', 'POST']
-  }
+    origin: true, // Allow all origins for development
+    methods: ['GET', 'POST'],
+    credentials: true
+  },
+  transports: ['websocket', 'polling']
 });
 
 // In-memory cache for realtime (singleton)
@@ -30,19 +39,21 @@ io.on('connection', (socket) => {
   for (const [deviceId, data] of Object.entries(latestData)) {
     socket.emit('sensor-data', data);
   }
-
+  
   socket.on('disconnect', () => {
     console.log(`[WS] Client disconnected: ${socket.id}`);
   });
 });
 
-// Sinkronisasi in-memory dengan service (untuk broadcast via Socket.IO)
+// Override handler untuk broadcast via Socket.IO
 const originalHandleSensorData = sensorService.handleSensorData;
 sensorService.handleSensorData = async function(payload) {
   const result = await originalHandleSensorData.call(this, payload);
   
   // Cache di memory untuk Socket.IO push
   latestData[payload.deviceId] = result;
+  
+  console.log(`[WS] Broadcasting: ${payload.deviceId} -> temp:${result.temperature}°C, pH:${result.ph}`);
   
   // Broadcast ke semua browser
   io.emit('sensor-data', result);

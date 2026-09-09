@@ -11,6 +11,18 @@ router.post('/',
   asyncHandler(sensorController.createSensorData)
 );
 
+// Alias route: terima POST dari ESP32 (compatible route)
+router.post('/data',
+  sensorValidator.validatePayload,
+  asyncHandler(sensorController.createSensorData)
+);
+
+// Alias route: terima POST dari ESP32 format lama (compatible route)
+router.post('/sensor/data',
+  sensorValidator.validatePayload,
+  asyncHandler(sensorController.createSensorData)
+);
+
 // GET /api/v1/sensors/latest/:deviceId - Data terakhir per device
 router.get('/latest/:deviceId', asyncHandler(sensorController.getLatest));
 

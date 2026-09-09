@@ -3,121 +3,213 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IoT Fish Monitoring Dashboard</title>
+    <title>Fish Monitoring Dashboard</title>
+    <!-- Library External -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://192.168.9.152:3000/libs/socket.io.min.js"></script>
+    <script src="https://192.168.9.152:3000/libs/chart.js.min.js"></script>
+    
+<!-- Force Fresh Load -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+    
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0c1220; color: #e0e6ed; min-height: 100vh; }
-        .header { background: rgba(16, 24, 44, 0.95); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #1e88e5; }
-        .header h1 { font-size: 1.5rem; }
-        .header h1 i { color: #4fc3f7; margin-right: 0.5rem; }
-        .status-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 0.5rem; }
-        .status-dot.connected { background: #4caf50; animation: pulse 2s infinite; }
-        .status-dot.disconnected { background: #f44336; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-        .info-bar { display: flex; gap: 2rem; background: rgba(30, 136, 229, 0.1); border-radius: 12px; padding: 1rem; margin-bottom: 1.5rem; }
-        .info-item { text-align: center; }
-        .info-value { font-size: 1.5rem; font-weight: bold; color: #4fc3f7; }
-        .info-label { font-size: 0.8rem; color: #90a4ae; }
-        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem; }
-        .card { background: rgba(22, 33, 54, 0.9); border-radius: 12px; padding: 1.5rem; border: 1px solid rgba(30, 136, 229, 0.3); }
-        .sensor-card { text-align: center; }
-        .sensor-value { font-size: 3rem; font-weight: bold; margin: 0.5rem 0; }
-        .sensor-value.temp { color: #ff7043; }
-        .sensor-value.ph { color: #66bb6a; }
-        .sensor-unit { font-size: 1rem; color: #78909c; }
-        .sensor-label { font-size: 0.85rem; color: #90a4ae; margin-top: 0.5rem; }
-        .chart-container { height: 250px; position: relative; }
-        .device-list { display: flex; flex-direction: column; gap: 0.5rem; }
-        .device-item { display: flex; justify-content: space-between; padding: 0.75rem; background: rgba(30, 136, 229, 0.05); border-radius: 8px; border-left: 3px solid #1e88e5; }
-        .no-data { color: #546e7a; text-align: center; padding: 2rem; font-style: italic; }
-        canvas { width: 100% !important; height: 100% !important; }
+        body { background-color: #0d1117; color: #c9d1d9; font-family: system-ui, sans-serif; margin: 0; padding: 0; }
+        .header { background: #161b22; padding: 1rem 2rem; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; }
+        .status-badge { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; background-color: #f85149; box-shadow: 0 0 5px #f85149; transition: 0.3s; }
+        .dot.active { background-color: #2ea043; box-shadow: 0 0 8px #2ea043; }
+        
+        .container { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; text-align: center; }
+        .big-val { font-size: 2.5rem; font-weight: bold; margin: 0.5rem 0; }
+        .label { color: #8b949e; font-size: 0.9rem; }
+        
+        .chart-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; height: 300px; position: relative; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1><i class="fas fa-fish"></i> IoT Fish Quality Monitor</h1>
-        <div>
-            <span class="status-dot connected" id="connDot"></span>
-            <span id="connText">Connected</span>
+        <h3><i class="fas fa-water"></i> KKP Fish Monitor</h3>
+        <div class="status-badge">
+            <span id="connDot" class="dot"></span>
+            <span id="statusText">Disconnected</span>
         </div>
     </div>
 
     <div class="container">
-        <div class="info-bar">
-            <div class="info-item"><div class="info-value" id="totalDevices">0</div><div class="info-label">Active Devices</div></div>
-            <div class="info-item"><div class="info-value" id="lastUpdate">--:--:--</div><div class="info-label">Last Update</div></div>
-        </div>
-
-        <div class="dashboard-grid">
-            <div class="card sensor-card">
-                <div style="color:#90a4ae"><i class="fas fa-thermometer-half"></i> TEMPERATURE</div>
-                <div class="sensor-value temp" id="tempValue">--</div>
-                <div class="sensor-unit">°C</div>
-                <div class="sensor-label" id="tempDevice">Waiting for data...</div>
-            </div>
-            <div class="card sensor-card">
-                <div style="color:#90a4ae"><i class="fas fa-flask"></i> pH LEVEL</div>
-                <div class="sensor-value ph" id="phValue">--</div>
-                <div class="sensor-unit">pH Scale</div>
-                <div class="sensor-label" id="phDevice">Waiting for data...</div>
-            </div>
-        </div>
-
-        <div class="dashboard-grid">
+        <!-- Info Cards -->
+        <div class="cards">
             <div class="card">
-                <div style="color:#90a4ae;margin-bottom:0.5rem"><i class="fas fa-chart-line"></i> Temperature Trend</div>
-                <canvas id="tempChart"></canvas>
+                <div class="label">Temperatur Air</div>
+                <div class="big-val" style="color: #ff7b72" id="valTemp">--</div>
+                <small id="devTemp">Menunggu data...</small>
             </div>
             <div class="card">
-                <div style="color:#90a4ae;margin-bottom:0.5rem"><i class="fas fa-chart-line"></i> pH Trend</div>
-                <canvas id="phChart"></canvas>
+                <div class="label">pH Level</div>
+                <div class="big-val" style="color: #a5d6ff" id="valPH">--</div>
+                <small id="devPH">Menunggu data...</small>
+            </div>
+            <div class="card">
+                <div class="label">Status Jaringan</div>
+                <div class="big-val" style="font-size: 1.5rem;" id="netInfo">Offline</div>
+                <small>Devices: <span id="devCount">0</span></small>
             </div>
         </div>
 
-        <div class="card">
-            <div style="color:#90a4ae;margin-bottom:0.5rem"><i class="fas fa-microchip"></i> Device Status</div>
-            <div class="device-list" id="deviceList"><div class="no-data">No devices connected yet</div></div>
+        <!-- Charts -->
+        <div class="cards">
+            <div class="chart-box">
+                <canvas id="chartTemp"></canvas>
+            </div>
+            <div class="chart-box">
+                <canvas id="chartPH"></canvas>
+            </div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script>
-        const socket = io();
-        let activeDevices = new Set();
-        const maxPoints = 30;
+        // --- CONFIG & STATE ---
+        
+        const MAX_POINTS = 20; 
         const labels = [], tempData = [], phData = [];
-
-        const chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#78909c', maxTicksLimit: 8 }, grid: { color: 'rgba(255,255,255,0.05)' } }, y: { ticks: { color: '#78909c' }, grid: { color: 'rgba(255,255,255,0.05)' } } }, animation: { duration: 400 } };
-
-        new Chart(document.getElementById('tempChart'), { type: 'line', data: { labels, datasets: [{ data: tempData, borderColor: '#ff7043', backgroundColor: 'rgba(255,112,67,0.1)', fill: true, tension: 0.4 }] }, options: { ...chartOpts, scales: { ...chartOpts.scales, y: { ...chartOpts.scales.y, suggestedMin: 20, suggestedMax: 35 } } } });
-        new Chart(document.getElementById('phChart'), { type: 'line', data: { labels, datasets: [{ data: phData, borderColor: '#66bb6a', backgroundColor: 'rgba(102,187,106,0.1)', fill: true, tension: 0.4 }] }, options: { ...chartOpts, scales: { ...chartOpts.scales, y: { ...chartOpts.scales.y, min: 0, max: 14 } } } });
-
-        socket.on('connect', () => { document.getElementById('connDot').className = 'status-dot connected'; document.getElementById('connText').textContent = 'Connected'; });
-        socket.on('disconnect', () => { document.getElementById('connDot').className = 'status-dot disconnected'; document.getElementById('connText').textContent = 'Disconnected'; });
-
-        socket.on('sensor-data', (d) => {
-            const now = new Date().toLocaleTimeString('id-ID');
-            labels.push(now); tempData.push(d.temperature); phData.push(d.ph);
-            if (labels.length > maxPoints) { labels.shift(); tempData.shift(); phData.shift(); }
-            document.getElementById('tempValue').textContent = d.temperature.toFixed(1);
-            document.getElementById('phValue').textContent = d.ph.toFixed(2);
-            document.getElementById('tempDevice').textContent = `Device: ${d.deviceId}`;
-            document.getElementById('phDevice').textContent = `Device: ${d.deviceId}`;
-            document.getElementById('lastUpdate').textContent = now;
-            document.getElementById('totalDevices').textContent = activeDevices.size || 1;
-            // Trigger chart update
-            Chart.helpers.each(Chart.instances, (instance) => instance.update('none'));
+        let devices = new Set();
+        let chartInst = null, chartPhInst = null;
+        
+        // Pre-fill charts so they aren't empty on first load
+        for(let i=1; i<=3; i++){
+            const t = new Date(Date.now() - i*60000);
+            labels.push(t.toLocaleTimeString('id-ID'));
+            tempData.push(26.5 + (i%2)*0.2);
+            phData.push(6.8 + (i%3)*0.05);
+        }
+        
+        // Initialize charts with the pre-filled data
+        const commonOpts = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: { x: { ticks: { color: '#8b949e' } }, y: { ticks: { color: '#8b949e' } } },
+            plugins: { legend: { labels: { color: '#c9d1d9' } } }
+        };
+        
+        const ctxT = document.getElementById('chartTemp').getContext('2d');
+        chartInst = new Chart(ctxT, {
+            type: 'line',
+            data: { labels: [...labels], datasets: [{ label: 'Temperature', data: [...tempData], borderColor: '#ff7b72', tension: 0.3 }] },
+            options: { ...commonOpts, scales: { ...commonOpts.scales, y: { ...commonOpts.scales.y, suggestedMin: 20, suggestedMax: 35 } } }
+        });
+        
+        const ctxP = document.getElementById('chartPH').getContext('2d');
+        chartPhInst = new Chart(ctxP, {
+            type: 'line',
+            data: { labels: [...labels], datasets: [{ label: 'pH Level', data: [...phData], borderColor: '#a5d6ff', tension: 0.3 }] },
+            options: { ...commonOpts, scales: { ...commonOpts.scales, y: { ...commonOpts.scales.y, min: 0, max: 14 } } }
+        });
+        
+        function updateCharts() {
+            chartInst.data.labels = [...labels];
+            chartPhInst.data.labels = [...labels];
+            chartInst.update();
+            chartPhInst.update();
+        }
+        
+        console.log('[DASHBOARD] Initial chart data:', labels.length, 'points loaded.');
+        
+        // --- CONNECT TO SOCKET.IO ---
+        const socket = io(window.location.origin, {
+            transports: ['polling'], // TEMP: polling only untuk test connectivity
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 2000,
+            withCredentials: true
+        });
+        
+        console.log('[DASHBOARD] Socket initialized with polling-first strategy');
+        
+        socket.on('connect', () => {
+            console.log("✅ Connected!");
+            document.getElementById('connDot').classList.add('active');
+            document.getElementById('statusText').innerText = "Connected";
+            
+            // Hanya kirim ulang data terakhir yang tersimpan
+            updateCharts();
         });
 
-        socket.on('devices-list', (ids) => { ids.forEach(id => activeDevices.add(id)); refreshDevices(ids); });
+        socket.on('disconnect', () => {
+            document.getElementById('connDot').classList.remove('active');
+            document.getElementById('statusText').innerText = "Disconnected";
+        });
 
-        function refreshDevices(ids) {
-            const el = document.getElementById('deviceList');
-            el.innerHTML = ids.map(id => `<div class="device-item"><span><i class="fas fa-microchip"></i> ${id}</span><span style="color:#4caf50;font-size:0.8rem;padding:0.25rem 0.75rem;border-radius:15px;background:rgba(76,175,80,0.2)">Online</span></div>`).join('') || '<div class="no-data">No devices connected yet</div>';
-        }
+        socket.on('sensor-data', (msg) => {
+            const t = msg.temperature;
+            const p = msg.ph;
+            const dev = msg.deviceId;
+
+            // Update UI Angka
+            document.getElementById('valTemp').innerText = t.toFixed(1) + "°C";
+            document.getElementById('valPH').innerText = p.toFixed(2);
+            document.getElementById('devTemp').innerText = dev;
+            document.getElementById('devPH').innerText = dev;
+            devices.add(dev);
+            document.getElementById('devCount').innerText = devices.size;
+            document.getElementById('netInfo').innerText = "Online";
+
+            // Update Grafik (PUSH DATA)
+            const time = new Date().toLocaleTimeString('id-ID');
+            labels.push(time);
+            tempData.push(t);
+            phData.push(p);
+
+            // POP data lama jika melebihi batas (FIX GRAFIK MEMANJANG)
+            if(labels.length > MAX_POINTS) {
+                labels.shift();
+                tempData.shift();
+                phData.shift();
+            }
+            updateCharts();
+        });
+
+        // --- FALLBACK: API Polling Every 5s ---
+        let lastFetchedData = null;
+        setInterval(async () => {
+            try {
+                const resp = await fetch('https://192.168.9.152:3000/api/v1/sensors/all');
+                const result = await resp.json();
+                if (result.success && result.data.length > 0) {
+                    const latest = result.data[result.data.length - 1];
+                    if (JSON.stringify(latest) !== JSON.stringify(lastFetchedData)) {
+                        // Update UI manually
+                        document.getElementById('valTemp').innerText = latest.temperature.toFixed(1) + "°C";
+                        document.getElementById('valPH').innerText = latest.ph.toFixed(2);
+                        document.getElementById('devTemp').innerText = latest.deviceId;
+                        document.getElementById('devPH').innerText = latest.deviceId;
+                        document.getElementById('netInfo').innerText = "Syncing";
+                        
+                        // Add to chart
+                        const time = new Date().toLocaleTimeString('id-ID');
+                        labels.push(time);
+                        tempData.push(latest.temperature);
+                        phData.push(latest.ph);
+                        
+                        if(labels.length > MAX_POINTS) {
+                            labels.shift();
+                            tempData.shift();
+                            phData.shift();
+                        }
+                        
+                        updateCharts();
+                        lastFetchedData = latest;
+                        console.log('[API] Updated from direct fetch:', latest);
+                    }
+                }
+            } catch(e) {
+                console.error('[API Fetch Error]', e);
+            }
+        }, 5000); // Every 5 seconds
+        
     </script>
 </body>
 </html>

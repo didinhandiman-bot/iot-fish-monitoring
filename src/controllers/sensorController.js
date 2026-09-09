@@ -4,12 +4,26 @@ class SensorController {
   // POST /api/v1/sensors - Terima data dari ESP32
   async createSensorData(req, res) {
     try {
+      const body = req.body;
+      
+      // Normalisasi payload: support dua format (firmware lama & baru)
+      let temperature, ph;
+      if (body.sensors && typeof body.sensors === 'object') {
+        // Format baru: { deviceId, sensors: { temperature, ph } }
+        temperature = parseFloat(body.sensors.temperature);
+        ph = parseFloat(body.sensors.ph);
+      } else {
+        // Format lama: { deviceId, temperature, ph }
+        temperature = parseFloat(body.temperature);
+        ph = parseFloat(body.ph);
+      }
+
       const payload = {
-        deviceId: req.body.deviceId,
-        timestamp: req.body.timestamp || Date.now(),
+        deviceId: body.deviceId,
+        timestamp: body.timestamp || Date.now(),
         sensors: {
-          temperature: parseFloat(req.body.sensors.temperature),
-          ph: parseFloat(req.body.sensors.ph)
+          temperature: temperature,
+          ph: ph
         }
       };
 
