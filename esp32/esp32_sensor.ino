@@ -3,6 +3,7 @@
 #include <HTTPClient.h>        // Library Kirim Data Web
 #include <OneWire.h>           // 🌡️ Protokol komunikasi DS18B20
 #include <DallasTemperature.h> // 🌡️ Library sensor suhu DS18B20
+#include <LiquidCrystal_I2C.h> // 📺 Library LCD I2C 16x2
 
 // ============================================================
 // 🔑 KONFIGURASI JARINGAN ANDA
@@ -29,6 +30,9 @@ const char* SERVER_URL  = "https://iot.bppmhkp.online/api/sensor/data";
 OneWire oneWire(DS18B20_PIN);
 DallasTemperature sensors(&oneWire);
 
+// LCD I2C — Alamat umum 0x27 atau 0x3F (ganti kalau gak muncul teks)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
 unsigned long lastSendTime = 0;
 bool wifiConnected = false;
 bool connectWifiSuccess = false;
@@ -44,8 +48,18 @@ void setup() {
   sensors.begin();
   sensors.setResolution(12); // Presisi maksimal (bisa 9-12 bit)
 
+  // Inisialisasi LCD I2C
+  lcd.init();               // Init LCD
+  lcd.backlight();          // Nyalakan backlight
+  lcd.setCursor(0, 0);      // Set cursor baris 1
+  lcd.print("  Fish Monitor"); // Baris pertama
+  lcd.setCursor(0, 1);      // Set cursor baris 2
+  lcd.print("  Starting...");  // Baris kedua
+  delay(2000);               // Tunggu 2 detik
+  lcd.clear();               // Bersihkan layar
+
   Serial.println("\n⚡ [BOOT] Fish Monitoring System Starting...");
-  
+
   // Tunggu sensor siap
   delay(500);
 
@@ -68,6 +82,14 @@ void loop() {
   // Cek status WiFi
   if (WiFi.status() != WL_CONNECTED) {
     digitalWrite(LED_PIN, LOW);
+
+    // Tampilkan status offline di LCD
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  WiFi Offline!");
+    lcd.setCursor(0, 1);
+    lcd.print("  Connecting...");
+
     if (millis() - lastSendTime > 5000) {
       Serial.println("[WARN] WiFi putus. Mencoba ulang...");
       connectToWifi();
@@ -87,15 +109,18 @@ void loop() {
   // Kirim data sesuai interval
   if (now - lastSendTime >= SENSOR_INTERVAL) {
     lastSendTime = now;
-    
+
     // Baca dari sensor DS18B20 asli
     float realTemp = getRealTemperature();
     float simulatedPH = getSimulatedPH();
 
     // Log suhu ke serial monitor
-    Serial.printf("[TEMP] %.1f°C | Sending to server...\n", realTemp);
+    Serial.printf("[TEMP] %.1f°C | pH %.2f | Sending...\n", realTemp, simulatedPH);
 
     sendSensorData(realTemp, simulatedPH);
+
+    // Update LCD dengan data terbaru
+    updateDisplay(realTemp, simulatedPH);
   }
 
   delay(500); // Sedikit jeda sistem
@@ -122,19 +147,39 @@ void connectToWifi() {
 }
 
 // ============================================================
+// 📺 UPDATE TAMPILAN LCD
+// ============================================================
+void updateDisplay(float temp, float ph) {
+  // Baris 1: Suhu
+  lcd.setCursor(0, 0);
+  lcd.print("Temp: ");
+  lcd.print(temp, 1);
+  lcd.print((char)223); // Karakter derajat °
+  lcd.print("C");
+
+  // Baris 2: pH + Status WiFi
+  lcd.setCursor(0, 1);
+  lcd.print("pH: ");
+  lcd.print(ph, 2);
+  lcd.print("  WiFi:OK");
+
+  Serial.println("✅ LCD Updated");
+}
+
+// ============================================================
 // 🌡️ BACA SUHU DARI DS18B20 ASLI
 // ============================================================
 float getRealTemperature() {
   sensors.requestTemperatures(); // Perintah baca suhu
-  
+
   float temp = sensors.getTempCByIndex(0); // Baca device pertama
-  
+
   // Handle error jika sensor tidak terdeteksi (-127.00)
   if (temp == -127.00) {
     Serial.println("⚠️ Sensor DS18B20 tidak terdeteksi! Pakai fallback.");
     return 27.0; // Fallback value kalau sensor belum nyambung
   }
-  
+
   return temp;
 }
 
@@ -162,8 +207,8 @@ void sendSensorData(float temp, float ph) {
     String deviceId = String(DEVICE_ID_PREFIX) + String(mac[4]) + String(mac[5]);
 
     // Susun JSON Payload
-    String jsonString = "{\"deviceId\":\"" + deviceId + 
-                        "\",\"temperature\":" + String(temp, 1) + 
+    String jsonString = "{\"deviceId\":\"" + deviceId +
+                        "\",\"temperature\":" + String(temp, 1) +
                         ",\"ph\":" + String(ph, 2) + "}";
 
     Serial.printf("[SEND] %s\n", jsonString.c_str());
