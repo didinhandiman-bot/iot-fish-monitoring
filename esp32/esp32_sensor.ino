@@ -23,6 +23,7 @@ const char* SERVER_URL  = "https://iot.bppmhkp.online/api/sensor/data";
 #define LED_PIN           2        // LED bawaan board ESP32
 #define DEVICE_ID_PREFIX  "FISH-"
 #define DS18B20_PIN       4        // GPIO4 -> DATA pin DS18B20
+// Catatan: LCD I2C modul ini perlu tegangan 5V agar tampil jelas (bisa dari pin 5V breakout board)
 
 // ============================================================
 // 🏗️ INISIALISASI OBJEK
