@@ -30,8 +30,8 @@ const char* SERVER_URL  = "https://iot.bppmhkp.online/api/sensor/data";
 OneWire oneWire(DS18B20_PIN);
 DallasTemperature sensors(&oneWire);
 
-// LCD I2C — Alamat umum 0x27 atau 0x3F (ganti kalau gak muncul teks)
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// LCD I2C — Alamat 0x3F
+LiquidCrystal_I2C lcd(0x3F, 16, 2);
 
 unsigned long lastSendTime = 0;
 bool wifiConnected = false;
