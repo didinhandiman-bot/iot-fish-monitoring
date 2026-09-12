@@ -1,238 +1,212 @@
-#include <WiFi.h>              // Library WiFi ESP32
-#include <WiFiClientSecure.h>  // 🔒 Client Aman untuk HTTPS
-#include <HTTPClient.h>        // Library Kirim Data Web
-#include <OneWire.h>           // 🌡️ Protokol komunikasi DS18B20
-#include <DallasTemperature.h> // 🌡️ Library sensor suhu DS18B20
-#include <LiquidCrystal_I2C.h> // 📺 Library LCD I2C 16x2
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 
 // ============================================================
-// 🔑 KONFIGURASI JARINGAN ANDA
+// 🔑 KONFIGURASI JARINGAN & SERVER
 // ============================================================
-const char* WIFI_SSID     = "OPPO A11k";      // Ganti Nama WiFi Anda
-const char* WIFI_PASSWORD = "43ed78eb1c43";   // Ganti Password WiFi Anda
+const char* WIFI_SSID     = "HW CHANNEL";
+const char* WIFI_PASSWORD = "@cc_hw#123";
+const char* SERVER_URL    = "https://iot.bppmhkp.online/api/sensor/data";
 
 // ============================================================
-// 📡 SERVER CONFIGURATION - Menggunakan Domain Resmi
+// 🔧 PIN & PARAMETER SISTEM
 // ============================================================
-const char* SERVER_URL  = "https://iot.bppmhkp.online/api/sensor/data";
+#define I2C_SDA_PIN       21     // Pin P21 -> SDA LCD
+#define I2C_SCL_PIN       22     // Pin R22 -> SCL LCD
+#define DS18B20_PIN       4      // Pin P4  -> DATA Sensor Suhu
+#define LED_PIN           2      // LED Indikator Board
+#define SENSOR_INTERVAL   10000  // Interval kirim data (ms)
+#define LCD_ADDR          0x27   // Alamat I2C umum (ganti 0x3F jika gelap)
 
 // ============================================================
-// 🔧 PIN & KONFIGURASI
-// ============================================================
-#define SENSOR_INTERVAL   10000    // Kirim data setiap 10 detik
-#define LED_PIN           2        // LED bawaan board ESP32
-#define DEVICE_ID_PREFIX  "FISH-"
-#define DS18B20_PIN       4        // GPIO4 -> DATA pin DS18B20
-// Catatan: LCD I2C modul ini perlu tegangan 5V agar tampil jelas (bisa dari pin 5V breakout board)
-
-// ============================================================
-// 🏗️ INISIALISASI OBJEK
+// 🏗 OBJEK HARDWARE
 // ============================================================
 OneWire oneWire(DS18B20_PIN);
 DallasTemperature sensors(&oneWire);
-
-// LCD I2C — Alamat 0x3F
-LiquidCrystal_I2C lcd(0x3F, 16, 2);
+LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
 
 unsigned long lastSendTime = 0;
-bool wifiConnected = false;
-bool connectWifiSuccess = false;
+String deviceId = "";
 
 // ============================================================
-// ⚙️ SETUP
+// 📺 FUNGSI BANTU LCD (Format pas 16 karakter per baris)
 // ============================================================
-void setup() {
-  Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
+void showLcdLines(const char* line1, const char* line2) {
+  char buf1[17], buf2[17];
+  snprintf(buf1, sizeof(buf1), "%-16s", line1);
+  snprintf(buf2, sizeof(buf2), "%-16s", line2);
 
-  // Mulai modul sensor DS18B20
-  sensors.begin();
-  sensors.setResolution(12); // Presisi maksimal (bisa 9-12 bit)
+  lcd.setCursor(0, 0);
+  lcd.print(buf1);
+  lcd.setCursor(0, 1);
+  lcd.print(buf2);
+}
 
-  // Inisialisasi LCD I2C
-  lcd.init();               // Init LCD
-  lcd.backlight();          // Nyalakan backlight
-  lcd.setCursor(0, 0);      // Set cursor baris 1
-  lcd.print("  Fish Monitor"); // Baris pertama
-  lcd.setCursor(0, 1);      // Set cursor baris 2
-  lcd.print("  Starting...");  // Baris kedua
-  delay(2000);               // Tunggu 2 detik
-  lcd.clear();               // Bersihkan layar
+void updateLcdReadings(float temp, float ph, bool isOnline) {
+  char line1[17];
+  char line2[17];
 
-  Serial.println("\n⚡ [BOOT] Fish Monitoring System Starting...");
-
-  // Tunggu sensor siap
-  delay(500);
-
-  // Connect WiFi
-  connectToWifi();
-
-  if (!connectWifiSuccess) {
-    Serial.println("❌ Gagal koneksi WiFi. Restart otomatis...");
-    delay(5000);
-    ESP.restart();
+  // Baris 1: Suhu
+  if (temp == -127.00) {
+    snprintf(line1, sizeof(line1), "Temp: ERR       ");
+  } else {
+    snprintf(line1, sizeof(line1), "Temp: %4.1f %cC   ", temp, (char)223);
   }
 
-  Serial.println("✅ Sistem Siap. Mulai kirim data.");
+  // Baris 2: pH dan status jaringan
+  snprintf(line2, sizeof(line2), "pH:%-4.2f  %s", ph, isOnline ? "WiFi:OK" : "WiFi:NC");
+
+  lcd.setCursor(0, 0);
+  lcd.print(line1);
+  lcd.setCursor(0, 1);
+  lcd.print(line2);
 }
 
 // ============================================================
-// 🔁 MAIN LOOP
+// 📶 MANAJEMEN WIFI
 // ============================================================
-void loop() {
-  // Cek status WiFi
-  if (WiFi.status() != WL_CONNECTED) {
-    digitalWrite(LED_PIN, LOW);
+bool connectWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return true;
 
-    // Tampilkan status offline di LCD
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("  WiFi Offline!");
-    lcd.setCursor(0, 1);
-    lcd.print("  Connecting...");
-
-    if (millis() - lastSendTime > 5000) {
-      Serial.println("[WARN] WiFi putus. Mencoba ulang...");
-      connectToWifi();
-    }
-    return;
-  }
-
-  // Jika baru connect, nyalakan LED solid
-  if (!wifiConnected) {
-    wifiConnected = true;
-    digitalWrite(LED_PIN, HIGH);
-    Serial.printf("[OK] Terhubung ke %s\n", WiFi.SSID().c_str());
-  }
-
-  unsigned long now = millis();
-
-  // Kirim data sesuai interval
-  if (now - lastSendTime >= SENSOR_INTERVAL) {
-    lastSendTime = now;
-
-    // Baca dari sensor DS18B20 asli
-    float realTemp = getRealTemperature();
-    float simulatedPH = getSimulatedPH();
-
-    // Log suhu ke serial monitor
-    Serial.printf("[TEMP] %.1f°C | pH %.2f | Sending...\n", realTemp, simulatedPH);
-
-    sendSensorData(realTemp, simulatedPH);
-
-    // Update LCD dengan data terbaru
-    updateDisplay(realTemp, simulatedPH);
-  }
-
-  delay(500); // Sedikit jeda sistem
-}
-
-// ============================================================
-// 📶 FUNGSI CONNECT WIFI
-// ============================================================
-void connectToWifi() {
+  showLcdLines("WiFi Connecting", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+
+  int retry = 0;
+  while (WiFi.status() != WL_CONNECTED && retry < 20) {
     delay(500);
     Serial.print(".");
-    attempts++;
+    retry++;
   }
+
   if (WiFi.status() == WL_CONNECTED) {
-    connectWifiSuccess = true;
-    Serial.println("\n✅ WiFi Terhubung!");
-  } else {
-    connectWifiSuccess = false;
+    Serial.println("\n[WiFi] Terhubung!");
+    digitalWrite(LED_PIN, HIGH);
+    return true;
   }
+
+  Serial.println("\n[WiFi] Gagal terhubung.");
+  digitalWrite(LED_PIN, LOW);
+  return false;
 }
 
 // ============================================================
-// 📺 UPDATE TAMPILAN LCD
+// 🌡 BACA SENSOR & DATA SIMULASI
 // ============================================================
-void updateDisplay(float temp, float ph) {
-  // Baris 1: Suhu
-  lcd.setCursor(0, 0);
-  lcd.print("Temp: ");
-  lcd.print(temp, 1);
-  lcd.print((char)223); // Karakter derajat °
-  lcd.print("C");
+float readTemperature() {
+  sensors.requestTemperatures();
+  float temp = sensors.getTempCByIndex(0);
 
-  // Baris 2: pH + Status WiFi
-  lcd.setCursor(0, 1);
-  lcd.print("pH: ");
-  lcd.print(ph, 2);
-  lcd.print("  WiFi:OK");
-
-  Serial.println("✅ LCD Updated");
-}
-
-// ============================================================
-// 🌡️ BACA SUHU DARI DS18B20 ASLI
-// ============================================================
-float getRealTemperature() {
-  sensors.requestTemperatures(); // Perintah baca suhu
-
-  float temp = sensors.getTempCByIndex(0); // Baca device pertama
-
-  // Handle error jika sensor tidak terdeteksi (-127.00)
   if (temp == -127.00) {
-    Serial.println("⚠️ Sensor DS18B20 tidak terdeteksi! Pakai fallback.");
-    return 27.0; // Fallback value kalau sensor belum nyambung
+    Serial.println("[SENSOR] DS18B20 tidak terdeteksi!");
+    return -127.00;
   }
-
   return temp;
 }
 
-// ============================================================
-// 📤 PUSH DATA KE SERVER
-// ============================================================
-void sendSensorData(float temp, float ph) {
-  digitalWrite(LED_PIN, HIGH);
+float readSimulatedPH() {
+  return 6.8 + (random(0, 6) / 100.0);
+}
 
-  // Gunakan klien aman (Secure Client)
+// ============================================================
+// 📤 PUSH HTTP POST DATA
+// ============================================================
+void sendTelemetry(float temp, float ph) {
   WiFiClientSecure client;
-
-  // Bypass validasi sertifikat SSL/TLS (self-signed cert)
   client.setInsecure();
   client.setTimeout(5000);
 
   HTTPClient http;
-
-  if (http.begin(client, SERVER_URL)) {
-    http.addHeader("Content-Type", "application/json");
-
-    // Ambil MAC Address Unik sebagai Device ID
-    byte mac[6];
-    WiFi.macAddress(mac);
-    String deviceId = String(DEVICE_ID_PREFIX) + String(mac[4]) + String(mac[5]);
-
-    // Susun JSON Payload
-    String jsonString = "{\"deviceId\":\"" + deviceId +
-                        "\",\"temperature\":" + String(temp, 1) +
-                        ",\"ph\":" + String(ph, 2) + "}";
-
-    Serial.printf("[SEND] %s\n", jsonString.c_str());
-
-    int httpResponse = http.POST(jsonString);
-
-    if (httpResponse > 0) {
-      Serial.printf("📤 OK (%d)\n", httpResponse);
-      digitalWrite(LED_PIN, LOW);
-    } else {
-      Serial.printf("❌ FAIL HTTP Code: %d\n", httpResponse);
-      digitalWrite(LED_PIN, HIGH);
-    }
-
-    http.end();
-  } else {
-    Serial.println("❌ Error Host tidak ditemukan");
+  if (!http.begin(client, SERVER_URL)) {
+    Serial.println("[HTTP] Gagal menghubungkan ke host");
+    return;
   }
+
+  http.addHeader("Content-Type", "application/json");
+
+  // Fallback suhu jika sensor lepas saat kirim
+  float reportTemp = (temp == -127.00) ? 27.0 : temp;
+  String payload = "{\"deviceId\":\"" + deviceId +
+                   "\",\"temperature\":" + String(reportTemp, 1) +
+                   ",\"ph\":" + String(ph, 2) + "}";
+
+  Serial.printf("[HTTP] Mengirim: %s\n", payload.c_str());
+  int responseCode = http.POST(payload);
+
+  if (responseCode > 0) {
+    Serial.printf("[HTTP] Sukses, Kode: %d\n", responseCode);
+  } else {
+    Serial.printf("[HTTP] Error, Kode: %d\n", responseCode);
+  }
+
+  http.end();
 }
 
 // ============================================================
-// 💧 SIMULASI pH (NANTI DIGANTI SENSOR pH ASLI)
+// ⚙️ SETUP UTAMA
 // ============================================================
-float getSimulatedPH() {
-  return (6.8 + (random(0, 6)) / 100.0);
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  // 1. Inisialisasi Bus I2C & LCD dengan proteksi timing
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  Wire.setClock(100000); // 100kHz standard-mode (mencegah karakter aneh)
+  
+  lcd.init();
+  lcd.backlight();
+  showLcdLines(" Fish Monitoring", "   System Boot  ");
+  delay(1500);
+
+  // 2. Inisialisasi DS18B20
+  sensors.begin();
+  sensors.setResolution(12);
+
+  // 3. Susun Device ID Unik dari MAC
+  byte mac[6];
+  WiFi.macAddress(mac);
+  deviceId = "FISH-" + String(mac[4], HEX) + String(mac[5], HEX);
+  deviceId.toUpperCase();
+
+  // 4. Sambungkan ke Jaringan
+  connectWiFi();
+}
+
+// ============================================================
+// 🔁 LOOP UTAMA
+// ============================================================
+void loop() {
+  bool isOnline = (WiFi.status() == WL_CONNECTED);
+  digitalWrite(LED_PIN, isOnline ? HIGH : LOW);
+
+  // Reconnect otomatis jika koneksi putus
+  if (!isOnline && (millis() - lastSendTime > 5000)) {
+    connectWiFi();
+    isOnline = (WiFi.status() == WL_CONNECTED);
+  }
+
+  // Siklus kirim data berkala
+  unsigned long now = millis();
+  if (now - lastSendTime >= SENSOR_INTERVAL) {
+    lastSendTime = now;
+
+    float currentTemp = readTemperature();
+    float currentPH   = readSimulatedPH();
+
+    // Perbarui display layar
+    updateLcdReadings(currentTemp, currentPH, isOnline);
+
+    // Kirim data ke API jika WiFi terhubung
+    if (isOnline) {
+      sendTelemetry(currentTemp, currentPH);
+    }
+  }
+
+  delay(200);
 }
